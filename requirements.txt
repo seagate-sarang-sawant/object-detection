@@ -1,0 +1,32 @@
+# Core dependencies
+tensorflow>=2.13.0
+tensorflow-datasets>=4.9.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+pillow>=10.0.0
+scikit-image>=0.21.0
+
+# Deep learning models
+ultralytics>=8.0.0  # For YOLOv8
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Face recognition
+face-recognition>=1.3.0
+dlib>=19.24.0
+insightface>=0.7.0
+
+# Data processing
+pandas>=2.0.0
+scipy>=1.11.0
+gdown>=4.7.0  # For Google Drive downloads
+
+# Visualization
+seaborn>=0.12.0
+tqdm>=4.65.0
+
+# Optional: Mask R-CNN (from Assignment 3)
+mrcnn>=0.2.0
+
+
