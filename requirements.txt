@@ -28,5 +28,17 @@ tqdm>=4.65.0
 
 # Optional: Mask R-CNN (from Assignment 3)
 mrcnn>=0.2.0
+insightface>=0.7.0
+kagglehub>=0.1.0
 
+# Kaggle
+kaggle>=1.5.12
 
+# Google Drive
+gdown>=4.7.0
+
+# Hugging Face
+huggingface-hub>=0.15.1
+
+# Hugging Face
+huggingface-hub>=0.15.1

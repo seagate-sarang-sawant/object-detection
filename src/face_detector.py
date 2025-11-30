@@ -71,9 +71,138 @@ def visualize_detections(image: np.ndarray, detections: List[Detection]) -> np.n
         cv2.putText(vis_img, text, (x1, max(0, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     return vis_img
 
+
+def delete_faces(
+    image: np.ndarray, 
+    detections: List[Detection],
+    method: str = "blur",
+    blur_strength: int = 50,
+    pixelate_size: int = 10
+) -> np.ndarray:
+    """
+    Delete/blur detected faces from image.
+    
+    Args:
+        image: Input image (BGR format)
+        detections: List of face detections to delete
+        method: Deletion method - "blur", "pixelate", "black", or "inpaint"
+        blur_strength: Blur kernel size (must be odd, for blur method)
+        pixelate_size: Size for pixelation (for pixelate method)
+    
+    Returns:
+        Image with faces deleted/blurred
+    """
+    result = image.copy()
+    
+    # Ensure blur_strength is odd
+    if blur_strength % 2 == 0:
+        blur_strength += 1
+    
+    for det in detections:
+        x1, y1, x2, y2 = det.bbox
+        
+        # Ensure coordinates are within image bounds
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(image.shape[1], x2)
+        y2 = min(image.shape[0], y2)
+        
+        if x2 <= x1 or y2 <= y1:
+            continue  # Skip invalid bounding boxes
+        
+        if method == "blur":
+            # Gaussian blur
+            face_roi = result[y1:y2, x1:x2]
+            if face_roi.size > 0:
+                blurred = cv2.GaussianBlur(face_roi, (blur_strength, blur_strength), 0)
+                result[y1:y2, x1:x2] = blurred
+                
+        elif method == "pixelate":
+            # Pixelate
+            face_roi = result[y1:y2, x1:x2]
+            if face_roi.size > 0:
+                # Downscale
+                small = cv2.resize(face_roi, (pixelate_size, pixelate_size), interpolation=cv2.INTER_LINEAR)
+                # Upscale back
+                pixelated = cv2.resize(small, (x2-x1, y2-y1), interpolation=cv2.INTER_NEAREST)
+                result[y1:y2, x1:x2] = pixelated
+                
+        elif method == "black":
+            # Black rectangle
+            result[y1:y2, x1:x2] = 0
+            
+        elif method == "inpaint":
+            # Inpainting (requires mask)
+            mask = np.zeros(result.shape[:2], dtype=np.uint8)
+            mask[y1:y2, x1:x2] = 255
+            result = cv2.inpaint(result, mask, 3, cv2.INPAINT_TELEA)
+            
+        else:
+            raise ValueError(f"Unknown deletion method: {method}. Use 'blur', 'pixelate', 'black', or 'inpaint'")
+    
+    return result
+
+
+def delete_specific_person_faces(
+    image: np.ndarray,
+    face_recognizer,  # FaceRecognizer instance
+    yolo_detector,   # YOLOFaceDetector instance
+    target_identity: str,
+    deletion_method: str = "blur",
+    recognition_threshold: float = 0.25,
+    blur_strength: int = 50
+) -> tuple[np.ndarray, List[Detection]]:
+    """
+    Delete faces of a specific person from an image.
+    
+    Args:
+        image: Input image (BGR format)
+        face_recognizer: FaceRecognizer instance with registered identities
+        yolo_detector: YOLOFaceDetector instance for face detection
+        target_identity: Name of the identity whose faces should be deleted
+        deletion_method: Method to use for deletion ("blur", "pixelate", "black", "inpaint")
+        recognition_threshold: Threshold for face recognition matching
+        blur_strength: Blur kernel size (for blur method)
+    
+    Returns:
+        Tuple of (processed_image, deleted_detections)
+    """
+    # Detect all faces
+    all_detections = yolo_detector.detect(image)
+    
+    if not all_detections:
+        return image, []
+    
+    # Filter detections to only target identity
+    target_detections = []
+    
+    for det in all_detections:
+        x1, y1, x2, y2 = det.bbox
+        # Crop face region
+        crop = image[y1:y2, x1:x2]
+        
+        # Match against registered identities
+        matches = face_recognizer.match(crop, threshold=recognition_threshold)
+        
+        # Check if this face matches the target identity
+        for match in matches:
+            if match["name"] == target_identity:
+                target_detections.append(det)
+                break
+    
+    # Delete only the target identity's faces
+    if target_detections:
+        result = delete_faces(image, target_detections, method=deletion_method, blur_strength=blur_strength)
+        return result, target_detections
+    
+    return image, []
+
+
 __all__ = [
     "Detection",
     "HaarFaceDetector",
     "YOLOFaceDetector",
     "visualize_detections",
+    "delete_faces",
+    "delete_specific_person_faces",
 ]
