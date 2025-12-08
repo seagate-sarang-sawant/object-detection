@@ -592,6 +592,107 @@ def load_custom_pascal_voc(
     return dataset
 
 
+def load_yolo_dataset(
+    train_dir: str | Path,
+    val_dir: str | Path,
+    image_size: Tuple[int, int] = (640, 640),
+    split: str = "train",
+) -> tf.data.Dataset:
+    """Load images and YOLO format annotations from train/val folders.
+    
+    Args:
+        train_dir: Directory containing train images and .txt annotations
+        val_dir: Directory containing val images and .txt annotations
+        image_size: Target image size for resizing
+        split: Which split to load ("train" or "val")
+        
+    Returns:
+        A tf.data.Dataset with fields: image, bboxes, labels, image_id
+    """
+    data_dir = Path(train_dir if split == "train" else val_dir)
+    
+    if not data_dir.exists():
+        raise ValueError(f"Directory not found: {data_dir}")
+    
+    # Collect all JPG files
+    img_files = sorted(list(data_dir.glob("*.jpg")) + list(data_dir.glob("*.JPG")))
+    
+    if not img_files:
+        raise ValueError(f"No images found in {data_dir}")
+    
+    def generator() -> Iterable[Dict[str, tf.Tensor]]:
+        for img_path in img_files:
+            # YOLO annotation file has same name as image but .txt extension
+            txt_path = data_dir / (img_path.stem + ".txt")
+            
+            if not txt_path.exists():
+                # Skip images without annotations
+                continue
+            
+            # Read and process image
+            image = tf.io.read_file(str(img_path))
+            image = tf.io.decode_jpeg(image, channels=3)
+            original_height = tf.cast(tf.shape(image)[0], tf.float32)
+            original_width = tf.cast(tf.shape(image)[1], tf.float32)
+            
+            # Resize image
+            image = tf.image.resize(image, image_size)
+            image = tf.image.convert_image_dtype(image, tf.float32)
+            
+            # Read YOLO format annotations
+            # Format: class_id x_center y_center width height (all normalized 0-1)
+            boxes = []
+            labels = []
+            
+            try:
+                annotation_text = txt_path.read_text().strip()
+                if annotation_text:  # Only process if file is not empty
+                    for line in annotation_text.split('\n'):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        parts = line.split()
+                        if len(parts) >= 5:
+                            class_id = int(parts[0])
+                            x_center = float(parts[1])
+                            y_center = float(parts[2])
+                            width = float(parts[3])
+                            height = float(parts[4])
+                            
+                            # Convert YOLO format (center, width, height) to (ymin, xmin, ymax, xmax)
+                            xmin = x_center - width / 2.0
+                            ymin = y_center - height / 2.0
+                            xmax = x_center + width / 2.0
+                            ymax = y_center + height / 2.0
+                            
+                            boxes.append([ymin, xmin, ymax, xmax])
+                            labels.append(class_id)
+            except Exception as e:
+                warnings.warn(f"Error reading annotation {txt_path}: {e}", UserWarning)
+                continue
+            
+            if not boxes:  # Skip if no valid boxes found
+                continue
+            
+            yield {
+                "image": image,
+                "bboxes": tf.constant(boxes, dtype=tf.float32),
+                "labels": tf.constant(labels, dtype=tf.int32),
+                "image_id": img_path.stem,
+            }
+    
+    output_signature = {
+        "image": tf.TensorSpec((*image_size, 3), tf.float32),
+        "bboxes": tf.TensorSpec((None, 4), tf.float32),
+        "labels": tf.TensorSpec((None,), tf.int32),
+        "image_id": tf.TensorSpec((), tf.string),
+    }
+    
+    dataset = tf.data.Dataset.from_generator(generator, output_signature=output_signature)
+    return dataset
+
+
 def save_dataset_statistics(dataset: tf.data.Dataset, output_path: str | Path, sample_size: int = 100) -> None:
     """Compute simple dataset stats and write to JSON."""
 
@@ -638,6 +739,7 @@ def get_tfds_dataloader(
 __all__ = [
     "load_wider_face",
     "load_custom_pascal_voc",
+    "load_yolo_dataset",
     "save_dataset_statistics",
     "get_tfds_dataloader",
 ]

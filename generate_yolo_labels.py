@@ -142,7 +142,8 @@ def process_images(
     method: str = "haar",
     yolo_model: str = "yolov8n.pt",
     train_split: float = 0.8,
-    copy_images: bool = True
+    copy_images: bool = True,
+    in_place: bool = False
 ):
     """
     Process images and generate YOLO labels.
@@ -155,13 +156,18 @@ def process_images(
         yolo_model: Path to YOLO model if using yolo method
         train_split: Fraction of images to use for training (rest for validation)
         copy_images: If True, copy images to output dir; if False, just generate labels
+        in_place: If True, generate labels next to images in their original locations
     """
-    # Find all image files
+    # Find all image files (recursively search subdirectories)
     image_extensions = {'.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'}
     image_files = []
     
     for ext in image_extensions:
         image_files.extend(input_dir.rglob(f"*{ext}"))
+    
+    # Filter out images that are already in train/val folders if in_place mode
+    if in_place:
+        image_files = [f for f in image_files if f.parent.name not in ['train', 'val']]
     
     if not image_files:
         print(f"No images found in {input_dir}")
@@ -169,6 +175,51 @@ def process_images(
     
     print(f"Found {len(image_files)} images")
     
+    if in_place:
+        # Generate labels in-place (next to images)
+        print("\nGenerating labels in-place (next to images)...")
+        skipped = 0
+        processed = 0
+        no_faces = 0
+        
+        for img_path in tqdm(image_files):
+            # Generate label file in the same directory as the image
+            label_path = img_path.parent / (img_path.stem + ".txt")
+            
+            # Check if label already exists
+            if label_path.exists():
+                skipped += 1
+                continue
+            
+            # Process image
+            image = cv2.imread(str(img_path))
+            if image is None:
+                continue
+            
+            # Detect faces
+            if method == "haar":
+                bboxes = detect_faces_haar(image)
+            elif method == "yolo":
+                bboxes = detect_faces_yolo(image, yolo_model)
+            else:
+                raise ValueError(f"Unknown method: {method}")
+            
+            # Skip if no faces detected
+            if not bboxes:
+                no_faces += 1
+                continue
+            
+            # Generate label file
+            generate_label_file(img_path, label_path, bboxes, class_id=0)
+            processed += 1
+        
+        print(f"\nDone! Labels generated next to images in {input_dir}")
+        print(f"  Processed: {processed} images")
+        print(f"  Skipped (already exist): {skipped} images")
+        print(f"  No faces detected: {no_faces} images")
+        return
+    
+    # Original behavior: organize into train/val
     # Shuffle for train/val split
     import random
     random.seed(42)
@@ -198,6 +249,39 @@ def process_images(
     
     print(f"\nDone! Labels saved to {output_labels_dir}")
     print(f"Images saved to {output_images_dir}")
+
+
+def process_single_image_inplace(
+    image_path: Path,
+    label_path: Path,
+    method: str,
+    yolo_model: str,
+    skip_existing: bool = True
+):
+    """Process a single image and generate its label file in-place."""
+    # Skip if label already exists
+    if skip_existing and label_path.exists():
+        return
+    
+    # Read image
+    image = cv2.imread(str(image_path))
+    if image is None:
+        return
+    
+    # Detect faces
+    if method == "haar":
+        bboxes = detect_faces_haar(image)
+    elif method == "yolo":
+        bboxes = detect_faces_yolo(image, yolo_model)
+    else:
+        raise ValueError(f"Unknown method: {method}")
+    
+    # Skip if no faces detected (don't create empty label file)
+    if not bboxes:
+        return
+    
+    # Generate label file in the same directory as the image
+    generate_label_file(image_path, label_path, bboxes, class_id=0)
 
 
 def process_single_image(
@@ -233,7 +317,9 @@ def process_single_image(
     # Copy or reference image
     output_image_path = output_images_dir / image_path.name
     if copy_images:
-        shutil.copy2(image_path, output_image_path)
+        # Only copy if source and destination are different
+        if image_path.resolve() != output_image_path.resolve():
+            shutil.copy2(image_path, output_image_path)
     
     # Generate label file
     label_filename = image_path.stem + ".txt"
@@ -288,6 +374,12 @@ def main():
         action="store_true",
         help="Don't copy images, just generate labels (images must already be in output dir)"
     )
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Generate labels in-place (next to images in their original locations). "
+             "Ignores --output-images and --output-labels. Skips images already in train/val folders."
+    )
     
     args = parser.parse_args()
     
@@ -306,7 +398,8 @@ def main():
         method=args.method,
         yolo_model=args.yolo_model,
         train_split=args.train_split,
-        copy_images=not args.no_copy
+        copy_images=not args.no_copy,
+        in_place=args.in_place
     )
 
 

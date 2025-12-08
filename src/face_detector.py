@@ -42,10 +42,13 @@ class HaarFaceDetector:
 class YOLOFaceDetector:
     """YOLOv8/YOLOv10 based detector for stronger performance."""
 
-    def __init__(self, model_name: str = "yolov8n.pt"):
+    def __init__(self, model_ref = None, model_name: str = "yolov8n.pt"):
         if YOLO is None:
             raise ImportError("ultralytics is required for YOLOFaceDetector")
-        self.model = YOLO(model_name)
+        if model_ref is not None:
+            self.model = model_ref 
+        else:   
+            self.model = YOLO(model_name)
 
     def detect(self, image: np.ndarray, conf: float = 0.25) -> List[Detection]:
         results = self.model.predict(image, conf=conf, verbose=False)
@@ -58,7 +61,10 @@ class YOLOFaceDetector:
                 score = float(box.conf[0].item())
                 label_idx = int(box.cls[0].item())
                 label = self.model.names.get(label_idx, "face")
-                detections.append(Detection([int(x1), int(y1), int(x2), int(y2)], score, label))
+                # Accept all detections (face detection model should only detect faces)
+                # But also accept "person" class in case model detects that
+                if label.lower() in ["face", "person", "0"] or label_idx == 0:
+                    detections.append(Detection([int(x1), int(y1), int(x2), int(y2)], score, label))
         return detections
 
 

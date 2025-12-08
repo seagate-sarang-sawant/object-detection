@@ -25,14 +25,14 @@ detector = YOLOFaceDetector('results/yolo_face_tuned6/weights/best.pt')
 image = cv2.imread('test.jpg')
 
 # Detect
-yolo_results = YOLO('results/yolo_face_tuned6/weights/best.pt').predict(image, verbose=False)
+yolo_results = YOLO('results/yolo_face_tuned8/weights/best.pt').predict(image, verbose=False)
 
 # Recognize
 for result in yolo_results:
     for box in result.boxes:
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         crop = image[y1:y2, x1:x2]
-        matches = recognizer.match(crop, threshold=0.25)
+        matches = recognizer.match(crop, threshold=0.60)
         if matches:
             print(f"Found: {matches[0]['name']}")
 ```
